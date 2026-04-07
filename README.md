@@ -80,6 +80,36 @@ See [CLAUDE.md](CLAUDE.md) for detailed troubleshooting, architecture diagrams, 
 - Do not set `sbx secret` for anthropic — it conflicts with the env var in the template
 - If `sbx` breaks, clean up with: `rm -rf ~/.local/state/sandboxes/ ~/.config/com.docker.sandboxes/`
 
+## Lessons Learned
+
+### sbx doesn't support environment variable passthrough
+
+`sbx` has no `--env` or `-e` flag. It launches the Claude Code binary directly (not through a shell), so env vars set in shell profiles or `/etc/sandbox-persistent.sh` are never sourced. The only reliable way to inject `ANTHROPIC_BASE_URL` and `ANTHROPIC_API_KEY` is to bake them into the container image with `ENV` directives in a custom Dockerfile.
+
+Additionally, `sbx` uses its own internal containerd — not the host Docker daemon — so custom images must be pushed to a local registry (`localhost:5000`) before `sbx` can pull them via the `--template` flag.
+
+### sbx proxies all traffic through an internal gateway
+
+Every sandbox routes HTTP/HTTPS through a proxy at `gateway.docker.internal:3128`. This proxy intercepts API requests, injects credentials (managed via `sbx secret set`), and forwards to Anthropic's servers. By setting `ANTHROPIC_BASE_URL` to point at the local vLLM instance, Claude Code sends requests to vLLM instead. The proxy still sits in the path but passes the traffic through since it's plain HTTP to a local address.
+
+### Nemotron's tool-call format has no built-in vLLM parser
+
+Nemotron emits tool calls in a custom XML format that no built-in vLLM parser handles:
+
+```xml
+<tool_call>
+<function=function_name>
+<parameter=key>value</parameter>
+</function>
+</tool_call>
+```
+
+The commonly-used `hermes` parser expects JSON inside `<tool_call>` tags. Without a matching parser, vLLM returns tool calls as plain text — Claude Code sees them as regular chat output and never executes any tools. The custom `nemotron_tool_parser.py` regex-extracts the function name and parameters from this XML format, converts them into structured `tool_call` objects, and vLLM then translates those into Anthropic `tool_use` blocks on the `/v1/messages` endpoint.
+
+### Never use sudo with sbx
+
+Running any `sbx` command with `sudo` creates root-owned state files under `~/.config/com.docker.sandboxes/` and `~/.local/state/sandboxes/`. Subsequent non-sudo runs fail with "permission denied" or "database already in use" errors. If this happens, the fix is to delete both directories and re-run `sbx login`.
+
 ## License
 
 Apache-2.0
