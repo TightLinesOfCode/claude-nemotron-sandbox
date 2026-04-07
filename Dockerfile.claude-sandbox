@@ -1,0 +1,6 @@
+FROM docker/sandbox-templates:claude-code-docker
+
+# Point Claude Code at the local vLLM endpoint.
+# host.docker.internal resolves to the host machine from inside the sandbox.
+ENV ANTHROPIC_BASE_URL=http://host.docker.internal:8989
+ENV ANTHROPIC_API_KEY=dummy

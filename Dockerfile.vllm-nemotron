@@ -1,0 +1,13 @@
+FROM vllm/vllm-openai:v0.17.1-cu130
+
+# Install the custom Nemotron tool parser
+COPY nemotron_tool_parser.py /usr/local/lib/python3.12/dist-packages/vllm/tool_parsers/nemotron_tool_parser.py
+
+# Register the parser in vLLM's tool parser registry
+RUN python3 -c "\
+with open('/usr/local/lib/python3.12/dist-packages/vllm/tool_parsers/__init__.py', 'r') as f: \
+    content = f.read(); \
+entry = '    \"nemotron\": (\n        \"nemotron_tool_parser\",\n        \"NemotronToolParser\",\n    ),\n'; \
+content = content.replace('_TOOL_PARSERS_TO_REGISTER = {', '_TOOL_PARSERS_TO_REGISTER = {\n' + entry); \
+with open('/usr/local/lib/python3.12/dist-packages/vllm/tool_parsers/__init__.py', 'w') as f: \
+    f.write(content)"
